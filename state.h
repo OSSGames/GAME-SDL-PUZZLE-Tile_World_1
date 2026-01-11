@@ -225,7 +225,7 @@ typedef struct gamestate {
     short		crlist[256];		/* list of creatures */
     char		hinttext[256];		/* text of the hint */
     mapcell		map[CXGRID * CYGRID];	/* the game's map */
-    unsigned char	localstateinfo[256];	/* rule-specific state data */
+    void	       *localstateinfo;		/* rule-specific state data */
 } gamestate;
 
 /* General status flags.
@@ -236,6 +236,7 @@ typedef struct gamestate {
 #define	SF_SHOWHINT		0x0008		/* display the hint text */
 #define	SF_NOANIMATION		0x0010		/* suppress tile animation */
 #define	SF_SHUTTERED		0x0020		/* hide map view */
+#define	SF_PEDANTIC		0x0040		/* use pedantic ruleset */
 
 /* Macros for the keys and boots.
  */

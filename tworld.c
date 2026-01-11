@@ -15,7 +15,7 @@
 #include	"play.h"
 #include	"score.h"
 #include	"solution.h"
-#include	"unslist.h"
+#include	"messages.h"
 #include	"help.h"
 #include	"oshw.h"
 #include	"cmdline.h"
@@ -39,19 +39,6 @@ typedef	struct gamespec {
     int		melindacount;	/* count for Melinda's free pass */
 } gamespec;
 
-/* Structure used to hold data collected by initoptionswithcmdline().
- */
-typedef	struct startupdata {
-    char       *filename;	/* which data file to use */
-    char       *savefilename;	/* an alternate solution file */
-    int		levelnum;	/* a selected initial level */ 
-    int		listdirs;	/* TRUE if directories should be listed */
-    int		listseries;	/* TRUE if the files should be listed */
-    int		listscores;	/* TRUE if the scores should be listed */
-    int		listtimes;	/* TRUE if the times should be listed */
-    int		batchverify;	/* TRUE to enter batch verification */
-} startupdata;
-
 /* Structure used to hold the complete list of available series.
  */
 typedef	struct seriesdata {
@@ -60,41 +47,46 @@ typedef	struct seriesdata {
     tablespec	table;		/* table for displaying the array */
 } seriesdata;
 
+/* Structure used to hold data collected by initoptionswithcmdline().
+ */
+typedef	struct startupdata {
+    char	       *filename;	/* which data file to use */
+    char	       *selectfilename;	/* which data file to select */
+    char	       *savefilename;	/* an alternate solution file */
+    int			levelnum;	/* a selected initial level */ 
+    char const	       *resdir;		/* where the resources are */
+    char const	       *seriesdir;	/* where the series files are */
+    char const	       *seriesdatdir;	/* where the series data files are */
+    char const	       *savedir;	/* where the solution files are */
+    int			volumelevel;	/* the initial volume level */
+    int			soundbufsize;	/* the sound buffer scaling factor */
+    int			mudsucking;	/* slowdown factor (for debugging) */
+    unsigned char	listdirs;	/* TRUE to list directories */
+    unsigned char	listseries;	/* TRUE to list files */
+    unsigned char	listscores;	/* TRUE to list scores */
+    unsigned char	listtimes;	/* TRUE to list times */
+    unsigned char	batchverify;	/* TRUE to do batch verification */
+    unsigned char	showhistogram;	/* TRUE to display idle histogram */
+    unsigned char	pedantic;	/* TRUE to set pedantic mode */
+    unsigned char	fullscreen;	/* TRUE to run in full-screen mode */
+    unsigned char	readonly;	/* TRUE to suppress all file writes */
+} startupdata;
+
+/* Name of the user's initialization file.
+ */
+static char const      *initfilename = "init";
+
 /* TRUE suppresses sound and the console bell.
  */
-static int	silence = FALSE;
-
-/* TRUE means the program should attempt to run in fullscreen mode.
- */
-static int	fullscreen = FALSE;
+static int		silence = FALSE;
 
 /* FALSE suppresses all password checking.
  */
-static int	usepasswds = TRUE;
-
-/* TRUE if the user requested an idle-time histogram.
- */
-static int	showhistogram = FALSE;
-
-/* Slowdown factor, used for debugging.
- */
-static int	mudsucking = 1;
-
-/* Frame-skipping disable flag.
- */
-static int	noframeskip = FALSE;
-
-/* The sound buffer scaling factor.
- */
-static int	soundbufsize = -1;
-
-/* The initial volume level.
- */
-static int	volumelevel = -1;
+static int		usepasswds = TRUE;
 
 /* The top of the stack of subtitles.
  */
-static void   **subtitlestack = NULL;
+static void	      **subtitlestack = NULL;
 
 /*
  * Text-mode output functions.
@@ -286,10 +278,10 @@ void printtable(FILE *out, tablespec const *table)
  */
 static void printdirectories(void)
 {
-    printf("Resource files read from:        %s\n", resdir);
-    printf("Level sets read from:            %s\n", seriesdir);
-    printf("Configured data files read from: %s\n", seriesdatdir);
-    printf("Solution files saved in:         %s\n", savedir);
+    printf("Resource files read from:        %s\n", getresdir());
+    printf("Level sets read from:            %s\n", getseriesdir());
+    printf("Configured data files read from: %s\n", getseriesdatdir());
+    printf("Solution files saved in:         %s\n", getsavedir());
 }
 
 /*
@@ -319,13 +311,13 @@ static int keyinputcallback(void)
 
     ch = input(TRUE);
     switch (ch) {
-        case CmdWest:		return '\b';
-        case CmdProceed:	return '\n';
-        case CmdQuitLevel:	return -1;
-        case CmdQuit:		exit(0);
-        default:
-	  if (isalpha(ch))
-	      return toupper(ch);
+      case CmdWest:		return '\b';
+      case CmdProceed:		return '\n';
+      case CmdQuitLevel:	return -1;
+      case CmdQuit:		exit(0);
+      default:
+	if (isalpha(ch))
+	    return toupper(ch);
     }
     return 0;
 }
@@ -348,7 +340,6 @@ static int scrollinputcallback(int *move)
       case CmdQuitLevel:	*move = CmdQuitLevel;		return FALSE;
       case CmdHelp:		*move = CmdHelp;		return FALSE;
       case CmdQuit:						exit(0);
-
     }
     return TRUE;
 }
@@ -394,6 +385,27 @@ static int solutionscrollinputcallback(int *move)
       case CmdSeeScores:	*move = CmdSeeScores;		return FALSE;
       case CmdQuitLevel:	*move = CmdQuitLevel;		return FALSE;
       case CmdHelp:		*move = CmdHelp;		return FALSE;
+      case CmdQuit:						exit(0);
+    }
+    return TRUE;
+}
+
+/* An input callback used while displaying scrolling text.
+ */
+static int textscrollinputcallback(int *move)
+{
+    int cmd;
+    switch ((cmd = input(TRUE))) {
+      case CmdPrev10:		*move = SCROLL_PAGE_UP;		break;
+      case CmdNorth:		*move = SCROLL_UP;		break;
+      case CmdPrev:		*move = SCROLL_UP;		break;
+      case CmdPrevLevel:	*move = SCROLL_UP;		break;
+      case CmdSouth:		*move = SCROLL_DN;		break;
+      case CmdNext:		*move = SCROLL_DN;		break;
+      case CmdNextLevel:	*move = SCROLL_DN;		break;
+      case CmdNext10:		*move = SCROLL_PAGE_DN;		break;
+      case CmdProceed:		*move = CmdProceed;		return FALSE;
+      case CmdQuitLevel:	*move = CmdQuitLevel;		return FALSE;
       case CmdQuit:						exit(0);
     }
     return TRUE;
@@ -717,6 +729,28 @@ static int showscores(gamespec *gs)
     return setcurrentgame(gs, n) || ret;
 }
 
+/* Render the message (if any) associated with the current level. If
+ * stage is negative, then display the prologue message; if stage is
+ * positive, then the epilogue message is displayed.
+ */
+static void showlevelmessage(gamespec const *gs, int stage)
+{
+    char const **pparray;
+    int ppcount;
+    int number;
+
+    if (stage < 0) {
+	if (issolved(gs, gs->currentgame))
+	    return;
+	number = -gs->series.games[gs->currentgame].number;
+    } else {
+	number = gs->series.games[gs->currentgame].number;
+    }
+    pparray = gettaggedmessage(gs->series.messages, number, &ppcount);
+    if (pparray)
+	displaytextscroll(" ", pparray, ppcount, +1, textscrollinputcallback);
+}
+
 /* Obtain a password from the user and move to the requested level.
  */
 static int selectlevelbypassword(gamespec *gs)
@@ -754,6 +788,7 @@ static int startinput(gamespec *gs)
     int		cmd, n;
 
     if (gs->currentgame != lastlevel) {
+	showlevelmessage(gs, -1);
 	lastlevel = gs->currentgame;
 	setstepping(0, FALSE);
     }
@@ -776,6 +811,7 @@ static int startinput(gamespec *gs)
 	  case CmdNext10:	leveldelta(+10);		return CmdNone;
 	  case CmdStepping:	changestepping(4, TRUE);	break;
 	  case CmdSubStepping:	changestepping(1, TRUE);	break;
+	  case CmdRndSlideDir:	rotaterndslidedir(TRUE);	break;
 	  case CmdVolumeUp:	changevolume(+2, TRUE);		break;
 	  case CmdVolumeDown:	changevolume(-2, TRUE);		break;
 	  case CmdHelp:		dohelp(Help_KeysBetweenGames);	break;
@@ -868,6 +904,8 @@ static int endinput(gamespec *gs)
 
     for (;;) {
 	switch (input(TRUE)) {
+	  case CmdVolumeUp:	changevolume(+2, TRUE);		break;
+	  case CmdVolumeDown:	changevolume(-2, TRUE);		break;
 	  case CmdPrev10:	changecurrentgame(gs, -10);	return TRUE;
 	  case CmdPrevLevel:	changecurrentgame(gs, -1);	return TRUE;
 	  case CmdPrev:		changecurrentgame(gs, -1);	return TRUE;
@@ -887,6 +925,8 @@ static int endinput(gamespec *gs)
 	  case CmdCheckSolution:
 	  case CmdProceed:
 	    if (gs->status > 0) {
+		if (gs->playmode == Play_Normal)
+		    showlevelmessage(gs, +1);
 		if (islastinseries(gs, gs->currentgame))
 		    gs->enddisplay = TRUE;
 		else
@@ -959,7 +999,7 @@ static int playgame(gamespec *gs, int firstcmd)
 	lastrendered = render;
 	if (n)
 	    break;
-	render = waitfortick() || noframeskip;
+	render = waitfortick();
 	cmd = input(FALSE);
 	if (cmd == CmdQuitLevel) {
 	    quitgamestate();
@@ -1006,12 +1046,7 @@ static int playgame(gamespec *gs, int firstcmd)
 		break;
 	      case CmdCheatNorth:     case CmdCheatWest:	break;
 	      case CmdCheatSouth:     case CmdCheatEast:	break;
-	      case CmdCheatHome:				break;
-	      case CmdCheatKeyRed:    case CmdCheatKeyBlue:	break;
-	      case CmdCheatKeyYellow: case CmdCheatKeyGreen:	break;
-	      case CmdCheatBootsIce:  case CmdCheatBootsSlide:	break;
-	      case CmdCheatBootsFire: case CmdCheatBootsWater:	break;
-	      case CmdCheatICChip:				break;
+	      case CmdCheatHome:      case CmdCheatStuff:	break;
 	      default:
 		cmd = CmdNone;
 		break;
@@ -1057,20 +1092,16 @@ static int playbackgame(gamespec *gs)
 	lastrendered = render;
 	if (n)
 	    break;
-	render = waitfortick() || noframeskip;
+	render = waitfortick();
 	switch (input(FALSE)) {
+	  case CmdVolumeUp:	changevolume(+2, TRUE);		break;
+	  case CmdVolumeDown:	changevolume(-2, TRUE);		break;
 	  case CmdPrevLevel:	changecurrentgame(gs, -1);	goto quitloop;
 	  case CmdNextLevel:	changecurrentgame(gs, +1);	goto quitloop;
 	  case CmdSameLevel:					goto quitloop;
 	  case CmdPlayback:					goto quitloop;
 	  case CmdQuitLevel:					goto quitloop;
 	  case CmdQuit:						exit(0);
-	  case CmdVolumeUp:
-	    changevolume(+2, TRUE);
-	    break;
-	  case CmdVolumeDown:
-	    changevolume(-2, TRUE);
-	    break;
 	  case CmdPauseGame:
 	    setgameplaymode(SuspendPlay);
 	    setdisplaymsg("(paused)", 1, 1);
@@ -1188,7 +1219,7 @@ static int runcurrentlevel(gamespec *gs)
     }
 
     valid = initgamestate(gs->series.games + gs->currentgame,
-			  gs->series.ruleset);
+			  gs->series.ruleset, TRUE);
     changesubtitle(gs->series.games[gs->currentgame].name);
     passwordseen(gs, gs->currentgame);
     if (!islastinseries(gs, gs->currentgame))
@@ -1218,18 +1249,21 @@ static int runcurrentlevel(gamespec *gs)
     return ret;
 }
 
+/* Quickly play back all of the user's solutions in the series without
+ * rendering or using the timer or the keyboard. If display is TRUE,
+ * the solutions that cannot be verified are reported to stdout. The
+ * return value is the number of invalid solutions found.
+ */
 static int batchverify(gameseries *series, int display)
 {
     gamesetup  *game;
     int		valid = 0, invalid = 0;
     int		i, f;
 
-    batchmode = TRUE;
-
     for (i = 0, game = series->games ; i < series->count ; ++i, ++game) {
 	if (!hassolution(game))
 	    continue;
-	if (initgamestate(game, series->ruleset) && prepareplayback()) {
+	if (initgamestate(game, series->ruleset, FALSE) && prepareplayback()) {
 	    setgameplaymode(BeginVerify);
 	    while (!(f = doturn(CmdNone)))
 		advancetick();
@@ -1271,14 +1305,14 @@ static int batchverify(gameseries *series, int display)
  * one of the series in the array, then the scrolling list will be
  * initialized with that series selected. If defaultlevel is not zero,
  * and a level in the selected series that the user is permitted to
- * access matches it, then that level will be thhe initial current
+ * access matches it, then that level will be the initial current
  * level. The return value is zero if nothing was selected, negative
  * if an error occurred, or positive otherwise.
  */
 static int selectseriesandlevel(gamespec *gs, seriesdata *series, int autosel,
 				char const *defaultseries, int defaultlevel)
 {
-    int	okay, f, n;
+    int	level, okay, f, n;
 
     if (series->count < 1) {
 	errmsg(NULL, "no level sets found");
@@ -1334,8 +1368,9 @@ static int selectseriesandlevel(gamespec *gs, seriesdata *series, int autosel,
     gs->currentgame = -1;
     gs->melindacount = 0;
 
-    if (defaultlevel) {
-	n = findlevelinseries(&gs->series, defaultlevel, NULL);
+    level = defaultlevel ? defaultlevel : gs->series.currentlevel;
+    if (level) {
+	n = findlevelinseries(&gs->series, level, NULL);
 	if (n >= 0) {
 	    gs->currentgame = n;
 	    if (gs->usepasswds &&
@@ -1370,9 +1405,36 @@ static int choosegame(gamespec *gs, char const *lastseries)
     return selectseriesandlevel(gs, &s, FALSE, lastseries, 0);
 }
 
+/* Record the number of the level last visited in the solution file.
+ */
+static int rememberlastlevel(gamespec *gs)
+{
+    if (gs->currentgame < 0 || gs->currentgame >= gs->series.count)
+	gs->series.currentlevel = 0;
+    else
+	gs->series.currentlevel = gs->series.games[gs->currentgame].number;
+    return savesolutionlevel(&gs->series);
+}
+
 /*
  * Initialization functions.
  */
+
+/* Allocate and assemble a directory path based on a root location, a
+ * default subdirectory name, and an optional override value.
+ */
+static char const *choosepath(char const *root, char const *dirname,
+			      char const *override)
+{
+    char       *dir;
+
+    dir = getpathbuffer();
+    if (override && *override)
+	strcpy(dir, override);
+    else
+	combinepath(dir, root, dirname);
+    return dir;
+}
 
 /* Set the four directories that the program uses (the series
  * directory, the series data directory, the resource directory, and
@@ -1433,130 +1495,161 @@ static void initdirs(char const *series, char const *seriesdat,
 	}
     }
 
-    resdir = getpathbuffer();
-    if (res)
-	strcpy(resdir, res);
-    else
-	combinepath(resdir, root, "res");
-
-    seriesdir = getpathbuffer();
-    if (series)
-	strcpy(seriesdir, series);
-    else
-	combinepath(seriesdir, root, "sets");
-
-    seriesdatdir = getpathbuffer();
-    if (seriesdat)
-	strcpy(seriesdatdir, seriesdat);
-    else
-	combinepath(seriesdatdir, root, "data");
-
-    savedir = getpathbuffer();
-    if (!save) {
+    setresdir(choosepath(root, "res", res));
+    setseriesdir(choosepath(root, "sets", series));
+    setseriesdatdir(choosepath(root, "data", seriesdat));
 #ifdef SAVEDIR
-	save = SAVEDIR;
+    setsavedir(choosepath(SAVEDIR, ".", save));
 #else
-	if ((dir = getenv("HOME")) && *dir && strlen(dir) < maxpath - 8)
-	    combinepath(savedir, dir, ".tworld");
-	else
-	    combinepath(savedir, root, "save");
-
+    if ((dir = getenv("HOME")) && *dir && strlen(dir) < maxpath - 8)
+	setsavedir(choosepath(dir, ".tworld", save));
+    else
+	setsavedir(choosepath(root, "save", save));
 #endif
-    } else {
-	strcpy(savedir, save);
+}
+
+/* Basic number-parsing function that silently clamps input to a valid
+ * value. Non-numeric string input will return min. (This function
+ * assumes that min and max constrained enough that they are not equal
+ * to LONG_MIN and/or LONG_MAX.)
+ */
+static int nparse(char const *str, int min, int max)
+{
+    int n;
+
+    parseint(str, &n, min);
+    return n < min ? min : n > max ? max : n;
+}
+
+/* Handle one option/argument from the command line or init file.
+ */
+static int processoption(int opt, char const *val, void *data)
+{
+    startupdata	       *start = data;
+    int			n;
+
+    switch (opt) {
+      case 0:
+	if (start->savefilename && start->levelnum) {
+	    fprintf(stderr, "too many arguments: %s\n", val);
+	    return 1;
+	}
+	if (!start->levelnum && (n = nparse(val, 0, 999)) > 0) {
+	    start->levelnum = n;
+	} else if (*start->filename) {
+	    start->savefilename = getpathbuffer();
+	    sprintf(start->savefilename, "%.*s", getpathbufferlen(), val);
+	} else {
+	    sprintf(start->filename, "%.*s", getpathbufferlen(), val);
+	}
+	break;
+      case 'i':
+	start->selectfilename = getpathbuffer();
+	sprintf(start->selectfilename, "%.*s", getpathbufferlen(), val);
+	break;
+      case 'D':	    start->seriesdatdir = val;			    break;
+      case 'L':	    start->seriesdir = val;			    break;
+      case 'R':	    start->resdir = val;			    break;
+      case 'S':	    start->savedir = val;			    break;
+      case 'H':	    start->showhistogram = !start->showhistogram;   break;
+      case 'F':	    start->fullscreen = !start->fullscreen;	    break;
+      case 'p':	    usepasswds = !usepasswds;			    break;
+      case 'q':	    silence = !silence;				    break;
+      case 'r':	    start->readonly = !start->readonly;		    break;
+      case 'P':	    start->pedantic = !start->pedantic;		    break;
+      case 'n':	    start->volumelevel = nparse(val, 0, 10);	    break;
+      case 'a':	    start->soundbufsize = nparse(val, 0, 5);	    break;
+      case 'd':	    start->listdirs = TRUE;			    break;
+      case 'l':	    start->listseries = TRUE;			    break;
+      case 's':	    start->listscores = TRUE;			    break;
+      case 't':	    start->listtimes = TRUE;			    break;
+      case 'b':	    start->batchverify = TRUE;			    break;
+      case 'm':	    start->mudsucking = nparse(val, 1, 10);	    break;
+      case 'h':	    printtable(stdout, yowzitch);      exit(EXIT_SUCCESS);
+      case 'V':	    printtable(stdout, vourzhon);      exit(EXIT_SUCCESS);
+      case 'v':	    puts(VERSION);		       exit(EXIT_SUCCESS);
+      case ':':
+	fprintf(stderr, "option requires an argument: %s\n", val);
+	return 1;
+      case '=':
+	fprintf(stderr, "option does not take an argument: %s\n", val);
+	return 1;
+      default:
+	fprintf(stderr, "unrecognized option: %s\n", val);
+	return 1;
     }
+    return 0;
 }
 
 /* Parse the command-line options and arguments, and initialize the
  * user-controlled options.
  */
-static int initoptionswithcmdline(int argc, char *argv[], startupdata *start)
+static int getsettingsfromcmdline(int argc, char *argv[], startupdata *start)
 {
-    cmdlineinfo	opts;
-    char const *optresdir = NULL;
-    char const *optseriesdir = NULL;
-    char const *optseriesdatdir = NULL;
-    char const *optsavedir = NULL;
+    static option const optlist[] = {
+	{ "audio-buffer",	'a', 'a', 1 },
+	{ "batch-verify",	'b', 'b', 0 },
+	{ "data-dir",		'D', 'D', 1 },
+	{ "list-dirs",		'd', 'd', 0 },
+	{ "full-screen",	'F', 'F', 0 },
+	{ "histogram",		 0 , 'H', 0 },
+	{ "help",		'h', 'h', 0 },
+	{ "initial-levelset",	 0 , 'i', 1 },
+	{ "levelset-dir",	'L', 'L', 1 },
+	{ "list-levelsets",	'l', 'l', 0 },
+#ifndef NDEBUG
+	{ "mud-sucking",	'm', 'm', 1 },
+#endif
+	{ "volume",		'n', 'n', 1 },
+	{ "pedantic",		'P', 'P', 0 },
+	{ "no-passwords",	'p', 'p', 0 },
+	{ "quiet",		'q', 'q', 0 },
+	{ "resource-dir",	'R', 'R', 1 },
+	{ "read-only",		'r', 'r', 0 },
+	{ "save-dir",		'S', 'S', 1 },
+	{ "list-scores",	's', 's', 0 },
+	{ "list-times",		't', 't', 0 },
+	{ "version",		'V', 'V', 0 },
+	{ "version-number",	'v', 'v', 0 },
+	{ 0, 0, 0, 0 }
+    };
+
     char	buf[256];
-    int		listdirs, pedantic;
-    int		ch, n;
-    char       *p;
 
     start->filename = getpathbuffer();
     *start->filename = '\0';
+    start->selectfilename = NULL;
     start->savefilename = NULL;
     start->levelnum = 0;
+    start->resdir = NULL;
+    start->seriesdir = NULL;
+    start->seriesdatdir = NULL;
+    start->savedir = NULL;
+    start->listdirs = FALSE;
     start->listseries = FALSE;
     start->listscores = FALSE;
     start->listtimes = FALSE;
     start->batchverify = FALSE;
-    listdirs = FALSE;
-    pedantic = FALSE;
-    mudsucking = 1;
-    soundbufsize = 0;
-    volumelevel = -1;
+    start->showhistogram = FALSE;
+    start->pedantic = FALSE;
+    start->fullscreen = FALSE;
+    start->readonly = FALSE;
+    start->volumelevel = -1;
+    start->soundbufsize = -1;
+    start->mudsucking = 1;
 
-    initoptions(&opts, argc - 1, argv + 1, "abD:dFfHhL:lm:n:PpqR:rS:stVv");
-    while ((ch = readoption(&opts)) >= 0) {
-	switch (ch) {
-	  case 0:
-	    if (start->savefilename && start->levelnum) {
-		fprintf(stderr, "too many arguments: %s\n", opts.val);
-		printtable(stderr, yowzitch);
-		return FALSE;
-	    }
-	    if (!start->levelnum && (n = (int)strtol(opts.val, &p, 10)) > 0
-				 && *p == '\0') {
-		start->levelnum = n;
-	    } else if (*start->filename) {
-		start->savefilename = getpathbuffer();
-		sprintf(start->savefilename, "%.*s", getpathbufferlen(),
-						     opts.val);
-	    } else {
-		sprintf(start->filename, "%.*s", getpathbufferlen(), opts.val);
-	    }
-	    break;
-	  case 'D':	optseriesdatdir = opts.val;			break;
-	  case 'L':	optseriesdir = opts.val;			break;
-	  case 'R':	optresdir = opts.val;				break;
-	  case 'S':	optsavedir = opts.val;				break;
-	  case 'H':	showhistogram = !showhistogram;			break;
-	  case 'f':	noframeskip = !noframeskip;			break;
-	  case 'F':	fullscreen = !fullscreen;			break;
-	  case 'p':	usepasswds = !usepasswds;			break;
-	  case 'q':	silence = !silence;				break;
-	  case 'r':	readonly = !readonly;				break;
-	  case 'P':	pedantic = !pedantic;				break;
-	  case 'a':	++soundbufsize;					break;
-	  case 'd':	listdirs = TRUE;				break;
-	  case 'l':	start->listseries = TRUE;			break;
-	  case 's':	start->listscores = TRUE;			break;
-	  case 't':	start->listtimes = TRUE;			break;
-	  case 'b':	start->batchverify = TRUE;			break;
-	  case 'm':	mudsucking = atoi(opts.val);			break;
-	  case 'n':	volumelevel = atoi(opts.val);			break;
-	  case 'h':	printtable(stdout, yowzitch); 	   exit(EXIT_SUCCESS);
-	  case 'v':	puts(VERSION);		 	   exit(EXIT_SUCCESS);
-	  case 'V':	printtable(stdout, vourzhon); 	   exit(EXIT_SUCCESS);
-	  case ':':
-	    fprintf(stderr, "option requires an argument: -%c\n", opts.opt);
-	    printtable(stderr, yowzitch);
-	    return FALSE;
-	  case '?':
-	    fprintf(stderr, "unrecognized option: -%c\n", opts.opt);
-	    printtable(stderr, yowzitch);
-	    return FALSE;
-	  default:
-	    printtable(stderr, yowzitch);
-	    return FALSE;
-	}
+    if (readoptions(optlist, argc, argv, processoption, start)) {
+	fprintf(stderr, "Try --help for more information.\n");
+	return FALSE;
     }
-
-    if (pedantic)
+    if (start->readonly)
+	setreadonly();
+    if (start->pedantic)
 	setpedanticmode();
 
-    initdirs(optseriesdir, optseriesdatdir, optresdir, optsavedir);
-    if (listdirs) {
+    initdirs(start->seriesdir, start->seriesdatdir,
+	     start->resdir, start->savedir);
+    if (start->listdirs) {
 	printdirectories();
 	exit(EXIT_SUCCESS);
     }
@@ -1569,29 +1662,99 @@ static int initoptionswithcmdline(int argc, char *argv[], startupdata *start)
 	}
     }
 
-    if (start->listscores || start->listtimes || start->batchverify
-					      || start->levelnum)
-	if (!*start->filename)
-	    strcpy(start->filename, "chips.dat");
+    return TRUE;
+}
 
+/* Parse the user's initialization file, if it exists, and add its
+ * values to the startup data struct. (Note that any values provided
+ * on the command line take precedence over initialization file
+ * settings. But the initialization file needs to be read after the
+ * command-line options, in case a non-default savedir was specified.)
+ */
+static int getsettingsfrominitfile(startupdata *start)
+{
+    static option const optlist[] = {
+	{ "initial-levelset",	0, 'i', 1 },
+	{ "volume",		0, 'n', 1 },
+	{ 0, 0, 0, 0 }
+    };
+
+    startupdata		rcstart;
+    fileinfo		file;
+    int			f;
+
+    clearfileinfo(&file);
+    if (!openfileindir(&file, getsavedir(), initfilename, "r", NULL))
+	return TRUE;
+
+    rcstart.selectfilename = NULL;
+    rcstart.volumelevel = -1;
+    if (readinitfile(optlist, &file, processoption, &rcstart) == 0) {
+	if (!start->selectfilename)
+	    start->selectfilename = rcstart.selectfilename;
+	if (start->volumelevel < 0)
+	    start->volumelevel = rcstart.volumelevel;
+	f = TRUE;
+    } else {
+	fileerr(&file, "invalid initialization file syntax");
+	f = FALSE;
+    }
+
+    fileclose(&file, NULL);
+    return f;
+}
+
+/* Write (or rewrite) the initialization file with the current values
+ * for the settings. If the current levelset was a one-off entered on
+ * the command line, then don't save it.
+ */
+static int writeinitfile(char const *lastseries)
+{
+    fileinfo file;
+
+    if (haspathname(lastseries))
+	return TRUE;
+    clearfileinfo(&file);
+    if (!openfileindir(&file, getsavedir(), initfilename, "w", "write error"))
+	return FALSE;
+    fprintf(file.fp, "initial-levelset=%s\n", lastseries);
+    fprintf(file.fp, "volume=%d\n", getvolume());
+    fileclose(&file, NULL);
+    return TRUE;
+}
+
+/* Read program settings from the initialization file and the
+ * command-line arguments.
+ */
+static int getsettings(int argc, char *argv[], startupdata *start)
+{
+    if (!getsettingsfromcmdline(argc, argv, start))
+	return FALSE;
+    if (!getsettingsfrominitfile(start))
+	return FALSE;
+    if (start->listscores || start->listtimes || start->batchverify
+					      || start->levelnum) {
+	if (!*start->filename) {
+	    errmsg(NULL, "no level set specified");
+	    return FALSE;
+	}
+    }
     return TRUE;
 }
 
 /* Run the initialization routines of oshw and the resource module.
  */
-static int initializesystem(void)
+static int initializesystem(startupdata const *start)
 {
-#ifdef NDEBUG
-    mudsucking = 1;
-#endif
-    setmudsuckingfactor(mudsucking);
-    if (!oshwinitialize(silence, soundbufsize, showhistogram, fullscreen))
+    setmudsuckingfactor(start->mudsucking);
+    if (!oshwinitialize(silence, start->soundbufsize,
+			start->showhistogram, start->fullscreen))
 	return FALSE;
     if (!initresources())
 	return FALSE;
     setkeyboardrepeat(TRUE);
-    if (volumelevel >= 0)
-	setvolume(volumelevel, FALSE);
+    if (start->volumelevel >= 0)
+	setvolume(start->volumelevel, FALSE);
     return TRUE;
 }
 
@@ -1601,10 +1764,6 @@ static void shutdownsystem(void)
 {
     shutdowngamestate();
     freeallresources();
-    free(resdir);
-    free(seriesdir);
-    free(seriesdatdir);
-    free(savedir);
 }
 
 /* Determine what to play. A list of available series is drawn up; if
@@ -1679,12 +1838,13 @@ static int choosegameatstartup(gamespec *gs, startupdata const *start)
 	}
     }
 
-    if (!initializesystem()) {
+    if (!initializesystem(start)) {
 	errmsg(NULL, "cannot initialize program due to previous errors");
 	return -1;
     }
 
-    return selectseriesandlevel(gs, &series, TRUE, NULL, start->levelnum);
+    return selectseriesandlevel(gs, &series, TRUE,
+				start->selectfilename, start->levelnum);
 }
 
 /*
@@ -1698,7 +1858,7 @@ int tworld(int argc, char *argv[])
     char	lastseries[sizeof spec.series.filebase];
     int		f;
 
-    if (!initoptionswithcmdline(argc, argv, &start))
+    if (!getsettings(argc, argv, &start))
 	return EXIT_FAILURE;
 
     f = choosegameatstartup(&spec, &start);
@@ -1710,6 +1870,7 @@ int tworld(int argc, char *argv[])
     do {
 	pushsubtitle(NULL);
 	while (runcurrentlevel(&spec)) ;
+	rememberlastlevel(&spec);
 	popsubtitle();
 	cleardisplay();
 	strcpy(lastseries, spec.series.filebase);
@@ -1717,6 +1878,7 @@ int tworld(int argc, char *argv[])
 	f = choosegame(&spec, lastseries);
     } while (f > 0);
 
+    writeinitfile(lastseries);
     shutdownsystem();
     return f == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

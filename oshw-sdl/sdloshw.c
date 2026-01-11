@@ -24,8 +24,9 @@ oshwglobals	sdlg;
  */
 static void _eventupdate(int wait)
 {
-    static int	mouselastx = -1, mouselasty = -1;
+    static int	mousevisible = TRUE;
     SDL_Event	event;
+    int		x, y;
 
     if (wait)
 	SDL_WaitEvent(NULL);
@@ -33,8 +34,13 @@ static void _eventupdate(int wait)
     while (SDL_PeepEvents(&event, 1, SDL_GETEVENT, SDL_ALLEVENTS)) {
 	switch (event.type) {
 	  case SDL_KEYDOWN:
-	    if (windowmappos(mouselastx, mouselasty) < 0)
-		SDL_ShowCursor(SDL_DISABLE);
+	    if (mousevisible) {
+		SDL_GetMouseState(&x, &y);
+		if (windowmappos(x, y) < 0) {
+		    SDL_ShowCursor(SDL_DISABLE);
+		    mousevisible = FALSE;
+		}
+	    }
 	    keyeventcallback(event.key.keysym.sym, TRUE);
 	    if (event.key.keysym.unicode
 			&& event.key.keysym.unicode != event.key.keysym.sym) {
@@ -43,23 +49,30 @@ static void _eventupdate(int wait)
 	    }
 	    break;
 	  case SDL_KEYUP:
-	    if (windowmappos(mouselastx, mouselasty) < 0)
-		SDL_ShowCursor(SDL_DISABLE);
+	    if (mousevisible) {
+		SDL_GetMouseState(&x, &y);
+		if (windowmappos(x, y) < 0) {
+		    SDL_ShowCursor(SDL_DISABLE);
+		    mousevisible = FALSE;
+		}
+	    }
 	    keyeventcallback(event.key.keysym.sym, FALSE);
 	    break;
 	  case SDL_MOUSEBUTTONDOWN:
 	  case SDL_MOUSEBUTTONUP:
-	    SDL_ShowCursor(SDL_ENABLE);
-	    mouselastx = event.motion.x;
-	    mouselasty = event.motion.y;
+	    if (!mousevisible) {
+		SDL_ShowCursor(SDL_ENABLE);
+		mousevisible = TRUE;
+	    }
 	    mouseeventcallback(event.button.x, event.button.y,
 			       event.button.button,
 			       event.type == SDL_MOUSEBUTTONDOWN);
 	    break;
 	  case SDL_MOUSEMOTION:
-	    SDL_ShowCursor(SDL_ENABLE);
-	    mouselastx = event.motion.x;
-	    mouselasty = event.motion.y;
+	    if (!mousevisible) {
+		SDL_ShowCursor(SDL_ENABLE);
+		mousevisible = TRUE;
+	    }
 	    break;
 	  case SDL_QUIT:
 	    exit(EXIT_SUCCESS);
@@ -67,18 +80,30 @@ static void _eventupdate(int wait)
     }
 }
 
-/* Alter the window decoration.
+/* Alter the window decoration, translating the subtitle to UTF-8 as
+ * necessary.
  */
 void setsubtitle(char const *subtitle)
 {
-    char	buf[270];
+    char	buf[512] = "Tile World";
+    char       *p;
 
     if (subtitle && *subtitle) {
-	sprintf(buf, "Tile World - %.255s", subtitle);
-	SDL_WM_SetCaption(buf, "Tile World");
-    } else {
-	SDL_WM_SetCaption("Tile World", "Tile World");
+	p = buf + strlen(buf);
+	*p++ = ' ';
+	*p++ = '-';
+	*p++ = ' ';
+	for ( ; *subtitle ; ++subtitle) {
+	    if (*subtitle & 0x80) {
+		*p++ = 0xC0 | ((*subtitle >> 6) & 0x03);
+		*p++ = 0x80 | (*subtitle & 0x3F);
+	    } else {
+		*p++ = *subtitle;
+	    }
+	}
+	*p = '\0';
     }
+    SDL_WM_SetCaption(buf, "Tile World");
 }
 
 /* Shut down SDL.

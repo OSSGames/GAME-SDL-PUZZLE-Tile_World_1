@@ -10,13 +10,14 @@
 #include	"defs.h"
 #include	"fileio.h"
 
-/* The path of the directory containing the user's solution files.
+/* Get and set the directory containing the user's solution files.
  */
-extern char    *savedir;
+extern char const *getsavedir(void);
+extern void setsavedir(char const *dir);
 
-/* No file modification will be done unless this variable is FALSE.
+/* No file modification will be done after this function is called.
  */
-extern int	readonly;
+extern void setreadonly(void);
 
 /* Initialize or reinitialize list as empty.
  */
@@ -72,6 +73,12 @@ extern void clearsolutions(gameseries *series);
  * not a valid solution file.
  */
 extern int loadsolutionsetname(char const *filename, char *buffer);
+
+/* Write out just the current level for the given series. TRUE is
+ * returned if the level number was successfully saved. No error is
+ * displayed if the value cannot be written.
+ */
+extern int savesolutionlevel(gameseries *series);
 
 /* Produce a list of available solution files associated with the
  * given series (i.e. that have the name of the series as their

@@ -15,7 +15,6 @@
 #include	"logic.h"
 #include	"random.h"
 #include	"solution.h"
-#include	"unslist.h"
 #include	"play.h"
 
 /* The current state of the current game.
@@ -26,9 +25,9 @@ static gamestate	state;
  */
 static gamelogic       *logic = NULL;
 
-/* TRUE if the program is running without a user interface.
+/* TRUE if the user has requested pedantic mode game play.
  */
-int			batchmode = FALSE;
+static int		pedanticmode = FALSE;
 
 /* How much mud to make the timer suck (i.e., the slowdown factor).
  */
@@ -55,13 +54,15 @@ int setmudsuckingfactor(int mud)
  * required for the given ruleset. Do nothing if the requested ruleset
  * is already the current ruleset.
  */
-static int setrulesetbehavior(int ruleset)
+static int setrulesetbehavior(int ruleset, int withgui)
 {
     if (logic) {
 	if (ruleset == logic->ruleset)
 	    return TRUE;
 	(*logic->shutdown)(logic);
 	logic = NULL;
+	free(state.localstateinfo);
+	state.localstateinfo = NULL;
     }
     if (ruleset == Ruleset_None)
 	return TRUE;
@@ -86,13 +87,14 @@ static int setrulesetbehavior(int ruleset)
 	return FALSE;
     }
 
-    if (!batchmode) {
+    if (withgui) {
 	if (!loadgameresources(ruleset) || !creategamedisplay()) {
 	    die("unable to proceed due to previous errors.");
 	    return FALSE;
 	}
     }
 
+    state.localstateinfo = calloc(logic->localstateinfosize, 1);
     logic->state = &state;
     return TRUE;
 }
@@ -100,9 +102,9 @@ static int setrulesetbehavior(int ruleset)
 /* Initialize the current state to the starting position of the
  * given level.
  */
-int initgamestate(gamesetup *game, int ruleset)
+int initgamestate(gamesetup *game, int ruleset, int withgui)
 {
-    if (!setrulesetbehavior(ruleset))
+    if (!setrulesetbehavior(ruleset, withgui))
 	die("unable to initialize the system for the requested ruleset");
 
     memset(state.map, 0, sizeof state.map);
@@ -115,9 +117,11 @@ int initgamestate(gamesetup *game, int ruleset)
     state.lastmove = NIL;
     state.initrndslidedir = NIL;
     state.stepping = -1;
-    state.statusflags = 0;
     state.soundeffects = 0;
     state.timelimit = game->time * TICKS_PER_SECOND;
+    state.statusflags = 0;
+    if (pedanticmode)
+	state.statusflags |= SF_PEDANTIC;
     initmovelist(&state.moves);
     resetprng(&state.mainprng);
 
@@ -198,8 +202,8 @@ void setgameplaymode(int mode)
     }
 }
 
-/* Alter the stepping. If display is true, update the screen to
- * reflect the change.
+/* Alter the stepping. If display is true, the new stepping value is
+ * reported to the user.
  */
 int setstepping(int stepping, int display)
 {
@@ -230,6 +234,33 @@ int changestepping(int delta, int display)
 	n &= ~3;
     if (state.stepping != n)
 	return setstepping(n, display);
+    return TRUE;
+}
+
+/* Rotate the initial random slide direction. Note that the stored
+ * value for initrndslidedir is actually to the left of the first
+ * direction that will actually be used, so the displayed message
+ * needs to reflect that.
+ */
+int rotaterndslidedir(int display)
+{
+    char	msg[32];
+    char const *dirname;
+
+    if (state.ruleset == Ruleset_MS)
+	return FALSE;
+    state.initrndslidedir = right(state.initrndslidedir);
+    if (display) {
+	switch (right(state.initrndslidedir)) {
+	  case NORTH:	dirname = "north";	break;
+	  case WEST:	dirname = "west";	break;
+	  case SOUTH:	dirname = "south";	break;
+	  case EAST:	dirname = "east";	break;
+	  default:	dirname = "(nil)";	break;
+	}
+	sprintf(msg, "random slide: %s", dirname);
+	setdisplaymsg(msg, 500, 500);
+    }
     return TRUE;
 }
 
@@ -339,7 +370,7 @@ int endgamestate(void)
  */
 void shutdowngamestate(void)
 {
-    setrulesetbehavior(Ruleset_None);
+    setrulesetbehavior(Ruleset_None, FALSE);
     destroymovelist(&state.moves);
 }
 
